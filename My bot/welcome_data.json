@@ -1,0 +1,12 @@
+{
+    "1459910954950066303": {
+        "channel": 1459912828595998744,
+        "embed": {
+            "flags": 0,
+            "color": 5793266,
+            "type": "rich",
+            "description": "Edit the welcome message using buttons.\n\nVariables:\n`{user}` `{username}` `{server}` `{membercount}`",
+            "title": "Welcome System Setup"
+        }
+    }
+}

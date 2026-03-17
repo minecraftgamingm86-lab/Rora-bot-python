@@ -1,0 +1,6 @@
+discord.py==2.7.1
+wavelink>=3.0.0  # or latest — check pypi.org/project/wavelink
+python-dotenv
+aiosqlite          # for leveling + economy DB
+Pillow             # for rank cards (image generation)
+aiosqlite>=0.17
