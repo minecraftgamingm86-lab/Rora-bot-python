@@ -1,137 +1,96 @@
-# cogs/economy.py
-import discord
-from discord.ext import commands, tasks
-from discord.ui import View, Button, Modal, TextInput
-from tinydb import TinyDB, Query
-import random
+# ───────────────────────── Casino UI ─────────────────────────
 
-db = TinyDB("economy.json")
-
-# ────────────────────────────── User Registration ──────────────────────────────
-
-def get_user(user_id):
-    users = db.table("users")
-    user = users.get(Query().id == user_id)
-    if not user:
-        users.insert({"id": user_id, "coins": 500, "cards": [], "level": 1, "xp": 0})
-        user = users.get(Query().id == user_id)
-    return user
-
-def update_user(user_id, data):
-    users = db.table("users")
-    users.update(data, Query().id == user_id)
-
-# ────────────────────────────── Shop System ──────────────────────────────
-
-SHOP_ITEMS = [
-    {"name": "Mystery Card", "price": 100},
-    {"name": "Rare Card", "price": 500},
-    {"name": "Legend Card", "price": 1200},
-]
-
-class ShopView(View):
+class CasinoView(discord.ui.View):
     def __init__(self, user_id):
-        super().__init__(timeout=300)
+        super().__init__(timeout=60)
         self.user_id = user_id
 
-    @discord.ui.button(label="Buy Item", style=discord.ButtonStyle.green)
-    async def buy_item(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(BuyModal(self.user_id))
+    async def interaction_check(self, interaction: discord.Interaction):
+        return interaction.user.id == self.user_id
 
-class BuyModal(Modal, title="Buy Item"):
-    item_name = TextInput(label="Item Name", placeholder="Ex: Rare Card")
-    quantity = TextInput(label="Quantity", placeholder="Ex: 2")
-
-    def __init__(self, user_id):
-        super().__init__()
-        self.user_id = user_id
-
-    async def on_submit(self, interaction: discord.Interaction):
-        item = self.item_name.value.strip()
-        qty = int(self.quantity.value.strip())
+    @discord.ui.button(label="🎲 Dice", style=discord.ButtonStyle.primary)
+    async def dice(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = get_user(self.user_id)
-        matched = next((i for i in SHOP_ITEMS if i["name"].lower() == item.lower()), None)
-        if not matched:
-            return await interaction.response.send_message("Item not found in shop.", ephemeral=True)
-        total_price = matched["price"] * qty
-        if user["coins"] < total_price:
-            return await interaction.response.send_message("Not enough coins.", ephemeral=True)
-        # Deduct coins and add cards
-        user["coins"] -= total_price
-        user["cards"] += [matched["name"]] * qty
-        update_user(self.user_id, {"coins": user["coins"], "cards": user["cards"]})
-        await interaction.response.send_message(f"Bought {qty}x {item} for {total_price}💰", ephemeral=True)
+        roll = random.randint(1, 6)
 
-# ────────────────────────────── Economy Cog ──────────────────────────────
-
-class Economy(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
-
-    @commands.command(name="balance")
-    async def balance(self, ctx):
-        user = get_user(ctx.author.id)
-        embed = discord.Embed(title=f"{ctx.author.display_name}'s Wallet", color=0x1abc9c)
-        embed.add_field(name="Coins", value=f"{user['coins']}💰")
-        embed.add_field(name="Level", value=f"{user['level']}")
-        embed.add_field(name="Cards Owned", value=f"{len(user['cards'])}")
-        await ctx.send(embed=embed)
-
-    @commands.command(name="daily")
-    async def daily(self, ctx):
-        from datetime import datetime, timedelta
-        user = get_user(ctx.author.id)
-        now = datetime.utcnow()
-        last_claim = user.get("last_daily")
-        if last_claim:
-            last = datetime.fromisoformat(last_claim)
-            if now - last < timedelta(hours=24):
-                remaining = timedelta(hours=24) - (now - last)
-                return await ctx.send(f"⏳ Daily reward already claimed! Wait {remaining} hours.")
-        # Give reward
-        reward = random.randint(100, 500)
-        user["coins"] += reward
-        user["last_daily"] = now.isoformat()
-        update_user(ctx.author.id, {"coins": user["coins"], "last_daily": user["last_daily"]})
-        await ctx.send(f"🎉 You received {reward}💰 coins for your daily reward!")
-
-    @commands.command(name="shop")
-    async def shop(self, ctx):
-        embed = discord.Embed(title="🛒 Shop", color=0xf1c40f)
-        for item in SHOP_ITEMS:
-            embed.add_field(name=item["name"], value=f"{item['price']}💰", inline=False)
-        view = ShopView(ctx.author.id)
-        await ctx.send(embed=embed, view=view)
-
-    @commands.command(name="cards")
-    async def cards(self, ctx):
-        user = get_user(ctx.author.id)
-        embed = discord.Embed(title=f"{ctx.author.display_name}'s Cards", color=0x9b59b6)
-        if user["cards"]:
-            counts = {}
-            for c in user["cards"]:
-                counts[c] = counts.get(c, 0)+1
-            for card, qty in counts.items():
-                embed.add_field(name=card, value=f"{qty}x", inline=True)
+        if roll >= 4:
+            win = 50
+            user["coins"] += win
+            result = f"🎲 You rolled **{roll}** and won {win}💰!"
         else:
-            embed.description = "No cards owned yet!"
-        await ctx.send(embed=embed)
+            lose = 30
+            user["coins"] -= lose
+            result = f"🎲 You rolled **{roll}** and lost {lose}💰!"
 
-    @commands.command(name="casino")
-    async def casino(self, ctx):
-        coins = get_user(ctx.author.id)["coins"]
-        if coins < 10:
-            return await ctx.send("You need at least 10💰 to play casino!")
-        result = random.choice(["win", "lose"])
-        bet = 50
-        if result == "win":
-            coins += bet
-            update_user(ctx.author.id, {"coins": coins})
-            await ctx.send(f"🎰 You won {bet}💰! You now have {coins}💰")
+        update_user(self.user_id, {"coins": user["coins"]})
+        await interaction.response.send_message(result, ephemeral=True)
+
+    @discord.ui.button(label="🪙 Coin Flip", style=discord.ButtonStyle.success)
+    async def coinflip(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user = get_user(self.user_id)
+        result = random.choice(["Heads", "Tails"])
+        win = random.choice([True, False])
+
+        if win:
+            user["coins"] += 40
+            msg = f"🪙 {result}! You won 40💰"
         else:
-            coins -= bet
-            update_user(ctx.author.id, {"coins": coins})
-            await ctx.send(f"🎰 You lost {bet}💰! You now have {coins}💰")
+            user["coins"] -= 25
+            msg = f"🪙 {result}! You lost 25💰"
 
-async def setup(bot):
-    await bot.add_cog(Economy(bot))
+        update_user(self.user_id, {"coins": user["coins"]})
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    @discord.ui.button(label="🎰 Slots", style=discord.ButtonStyle.danger)
+    async def slots(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user = get_user(self.user_id)
+        symbols = ["🍒", "🍋", "🍉", "⭐"]
+
+        roll = [random.choice(symbols) for _ in range(3)]
+
+        if roll[0] == roll[1] == roll[2]:
+            win = 120
+            user["coins"] += win
+            result = f"{' | '.join(roll)}\n🎉 JACKPOT! +{win}💰"
+        else:
+            lose = 50
+            user["coins"] -= lose
+            result = f"{' | '.join(roll)}\n😢 You lost {lose}💰"
+
+        update_user(self.user_id, {"coins": user["coins"]})
+        await interaction.response.send_message(result, ephemeral=True)
+
+    @discord.ui.button(label="🎡 Spin", style=discord.ButtonStyle.secondary)
+    async def spin(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user = get_user(self.user_id)
+
+        outcomes = [100, 50, 20, -30, -50, 200]
+        result = random.choice(outcomes)
+
+        user["coins"] += result
+        update_user(self.user_id, {"coins": user["coins"]})
+
+        if result > 0:
+            msg = f"🎡 You won {result}💰!"
+        else:
+            msg = f"🎡 You lost {abs(result)}💰!"
+
+        await interaction.response.send_message(msg, ephemeral=True)
+
+# ───────────────────────── Command ─────────────────────────
+
+@commands.command(name="casino")
+async def casino(self, ctx):
+    embed = discord.Embed(
+        title="🎰 Casino",
+        description="Choose a game below:",
+        color=0xe74c3c
+    )
+
+    embed.add_field(name="🎲 Dice", value="Roll dice to win coins", inline=False)
+    embed.add_field(name="🪙 Coin Flip", value="Heads or tails luck", inline=False)
+    embed.add_field(name="🎰 Slots", value="Match symbols to win big", inline=False)
+    embed.add_field(name="🎡 Spin", value="Random rewards or loss", inline=False)
+
+    view = CasinoView(ctx.author.id)
+    await ctx.send(embed=embed, view=view)
